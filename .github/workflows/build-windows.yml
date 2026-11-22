@@ -1,0 +1,36 @@
+name: Build Windows exe
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build runtime image (jlink)
+        run: mvn -B clean compile javafx:jlink
+
+      - name: Package exe (jpackage)
+        shell: pwsh
+        run: |
+          jpackage --type app-image `
+            --module org.ruru.ffta2editor/org.ruru.ffta2editor.App `
+            -n ffta2-editor `
+            --runtime-image .\target\image\ `
+            --dest dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffta2-editor-windows
+          path: dist/ffta2-editor

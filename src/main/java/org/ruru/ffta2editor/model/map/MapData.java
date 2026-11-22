@@ -34,9 +34,19 @@ public class MapData {
 
         public Point[] target = new Point[4];
 
-        byte primaryIndex;
-        byte FXIndex;
-        boolean isFX;
+        public int originalIndex; // index in the PRTS section (before sorting)
+        public byte primaryIndex;
+        public byte FXIndex;
+        public boolean isFX;
+
+        public int sourceX() { return Math.min(source[0].x, source[2].x); }
+        public int sourceY() { return Math.min(source[0].y, source[2].y); }
+        public int sourceWidth() { return Math.abs(source[2].x - source[0].x); }
+        public int sourceHeight() { return Math.abs(source[2].y - source[0].y); }
+        public int targetX() { return Math.min(target[0].x, target[2].x); }
+        public int targetY() { return Math.min(target[0].y, target[2].y); }
+        public int targetWidth() { return Math.abs(target[2].x - target[0].x); }
+        public int targetHeight() { return Math.abs(target[2].y - target[0].y); }
 
         public Part(ByteBuffer bytes) {
             target[0] = new Point(bytes.getShort(), bytes.getShort());
@@ -134,6 +144,7 @@ public class MapData {
 
             for (int i = 0; i < parts.length; i++) {
                 parts[i] = new Part(PRTSBytes);
+                parts[i].originalIndex = i;
             }
             int curr = 0;
             Part[] orderedParts = new Part[numParts];
@@ -251,5 +262,51 @@ public class MapData {
         
         cachedTextures.put(paletteIndex, bufferedImage);
         return bufferedImage;
+    }
+
+    /**
+     * Builds the palette of the map as an IndexColorModel (BGR555 -> RGB888).
+     * Index 0 is transparent.
+     */
+    public IndexColorModel getColorModel(int paletteIndex) {
+        ByteBuffer paletteBytes = ByteBuffer.wrap(palettes[paletteIndex]).order(ByteOrder.LITTLE_ENDIAN);
+        byte[] reds = new byte[256];
+        byte[] greens = new byte[256];
+        byte[] blues = new byte[256];
+        for (int i = 0; i < 256; i++) {
+            short color = paletteBytes.getShort();
+            reds[i]   = (byte)(( color        & 0x1F) * 255 / 31);
+            greens[i] = (byte)(((color >> 5)  & 0x1F) * 255 / 31);
+            blues[i]  = (byte)(((color >> 10) & 0x1F) * 255 / 31);
+        }
+        return new IndexColorModel(8, 256, reds, greens, blues, 0);
+    }
+
+    /**
+     * Cuts a single tile (part) out of the map texture.
+     * The result is an 8-bit indexed image at native size with the game's palette.
+     * Pixel indices are copied directly from the texture, so they match the original data exactly.
+     *
+     * @param partIndex index into {@link #parts} (draw order)
+     */
+    public BufferedImage getTile(int partIndex, int paletteIndex) {
+        Part part = parts[partIndex];
+        int w = Math.max(part.sourceWidth(), 1);
+        int h = Math.max(part.sourceHeight(), 1);
+        int sx = part.sourceX();
+        int sy = part.sourceY();
+
+        BufferedImage tile = new BufferedImage(w, h, BufferedImage.TYPE_BYTE_INDEXED, getColorModel(paletteIndex));
+        byte[] row = new byte[w];
+        for (int y = 0; y < h; y++) {
+            int ty = sy + y;
+            for (int x = 0; x < w; x++) {
+                int tx = sx + x;
+                int offset = ty * width + tx;
+                row[x] = (tx >= 0 && tx < width && ty >= 0 && ty < height && offset < texture.length) ? texture[offset] : 0;
+            }
+            tile.getRaster().setDataElements(0, y, w, 1, row);
+        }
+        return tile;
     }
 }

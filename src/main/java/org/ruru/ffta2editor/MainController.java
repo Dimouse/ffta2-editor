@@ -163,8 +163,19 @@ public class MainController {
             return flags.get(4);
         }
 
+        public ExportImageFlags setMapTiles(boolean value) {
+            flags.set(5, value);
+            return this;
+        }
+        public ExportImageFlags setMapTiles() {
+            return setMapTiles(true);
+        }
+        public boolean getMapTiles() {
+            return flags.get(5);
+        }
+
         ExportImageFlags() {
-            flags = new BitSet(5);
+            flags = new BitSet(6);
         }
 
 
@@ -175,6 +186,7 @@ public class MainController {
     @FXML MenuItem exportTopSpritesMenuItem;
     @FXML MenuItem exportFacesMenuItem;
     @FXML MenuItem exportMapsMenuItem;
+    @FXML MenuItem exportMapTilesMenuItem;
 
     @FXML
     public void initialize() {
@@ -184,6 +196,7 @@ public class MainController {
         exportTopSpritesMenuItem.setOnAction(e -> exportSpritesSelector(new ExportImageFlags().setTopSprites()));
         exportFacesMenuItem.setOnAction(e -> exportSpritesSelector(new ExportImageFlags().setFaces()));
         exportMapsMenuItem.setOnAction(e -> exportSpritesSelector(new ExportImageFlags().setMaps().setMapTextures()));
+        exportMapTilesMenuItem.setOnAction(e -> exportSpritesSelector(new ExportImageFlags().setMapTiles()));
     }
 
     public static class IdxPaks {
@@ -1081,6 +1094,7 @@ public class MainController {
                 if (exportFlags.getFaces()) exportFaceSprites(savePath.resolve("Faces"));
                 if (exportFlags.getMapTextures()) exportMapTextures(savePath.resolve("Map Textures"));
                 if (exportFlags.getMaps()) exportMaps(savePath.resolve("Maps"));
+                if (exportFlags.getMapTiles()) exportMapTiles(savePath.resolve("Map Tiles"));
             } catch (Exception e) {
                 Platform.runLater(() -> {
                     logger.log(Level.SEVERE, String.format("Failed to export"), e);
@@ -1155,6 +1169,42 @@ public class MainController {
                 Path imagePath = savePath.resolve(String.format("%d %d.png", map.id, i));
                 BufferedImage image = map.getImage(i);
                 ImageIO.write(image, "png", imagePath.toFile());
+            }
+        }
+    }
+
+    /**
+     * Exports every part (tile) of every map as a separate indexed PNG.
+     * Layout:
+     *   Map Tiles/<map id>/tiles.csv              - coordinates of every tile
+     *   Map Tiles/<map id>/<palette>/<part>.png   - tile image in that palette
+     */
+    public void exportMapTiles(Path savePath) throws IOException {
+        Files.createDirectories(savePath);
+        for (MapData map : spritesTabController.mapList) {
+            if (map.parts == null || map.parts.length == 0 || map.texture.length == 0) continue;
+            Path mapPath = savePath.resolve(Integer.toString(map.id));
+            Files.createDirectories(mapPath);
+
+            StringBuilder csv = new StringBuilder();
+            csv.append("file;prts_index;fx;primary_index;fx_index;src_x;src_y;src_w;src_h;dst_x;dst_y;dst_w;dst_h\n");
+            for (int j = 0; j < map.parts.length; j++) {
+                MapData.Part part = map.parts[j];
+                csv.append(String.format("%03d.png;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d\n",
+                    j, part.originalIndex, part.isFX ? 1 : 0,
+                    Byte.toUnsignedInt(part.primaryIndex), Byte.toUnsignedInt(part.FXIndex),
+                    part.sourceX(), part.sourceY(), part.sourceWidth(), part.sourceHeight(),
+                    part.targetX(), part.targetY(), part.targetWidth(), part.targetHeight()));
+            }
+            Files.writeString(mapPath.resolve("tiles.csv"), csv.toString());
+
+            for (int i = 0; i < map.palettes.length; i++) {
+                Path palettePath = mapPath.resolve(Integer.toString(i));
+                Files.createDirectories(palettePath);
+                for (int j = 0; j < map.parts.length; j++) {
+                    BufferedImage tile = map.getTile(j, i);
+                    ImageIO.write(tile, "png", palettePath.resolve(String.format("%03d.png", j)).toFile());
+                }
             }
         }
     }
